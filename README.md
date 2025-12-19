@@ -14,3 +14,8 @@ yet another advent of code 2025 repository.
 10. **(Part 1)** DP on indicator states, running BFS to find shortest path to target state. **(Part 2)** Integer linear programming optimization to determine minimum number of presses such that sum of activations is required joltage.
 11. **(Part 1)** DP path counting. **(Part 2)** DP path counting, with flags marking if `fft` and `dac` have been reached.
 12. Check if we can naively pack each shape in a distinct 3x3 cell, which somehow works.
+
+## visualizations
+https://knosmos.github.io/08_visualization
+
+<img width="2531" height="1521" alt="image" src="https://github.com/user-attachments/assets/355f9837-ab38-46ba-99f9-837e1a50460a" />
