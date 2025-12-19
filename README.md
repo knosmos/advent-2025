@@ -16,6 +16,6 @@ yet another advent of code 2025 repository.
 12. Check if we can naively pack each shape in a distinct 3x3 cell, which somehow works.
 
 ## visualizations
-https://knosmos.github.io/08_visualization
+https://knosmos.github.io/advent-2025/08
 
 <img width="2531" height="1521" alt="image" src="https://github.com/user-attachments/assets/355f9837-ab38-46ba-99f9-837e1a50460a" />
