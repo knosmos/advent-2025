@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSU Component Merging Visualization</title>
+</head>
+<body>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap');
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0f0f23; /*337 x 5*/
+            color: #cccccc;
+            font-family: "Source Code Pro";
+            font-weight: 300;
+            font-size: 14pt;
+            min-width: 60em;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 300px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        button, input[type=file]::file-selector-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12pt;
+            font-family: "Source Code Pro";
+        }
+        button:hover, input[type=file]::file-selector-button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        #info {
+            margin-top: 15px;
+            font-size: 13pt;
+            line-height: 1.6;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        #file-input {
+            margin: 10px 0;
+        }
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        h3 {
+            margin: 0 0 10px 0;
+            font-weight: normal;
+        }
+        input[type=file] {
+            font-size: 12pt;
+            font-family: "Source Code Pro";
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        input[type=file]::file-selector-button {
+            margin-right: 10px;
+        }
+    </style>
+    <div id="canvas-container"></div>
+    <div id="controls">
+        <h3>JUNCTION BOX <br><span style="color:rgb(166, 166, 166)">CONTROL PANEL ///</span></h3>
+        <input type="file" id="file-input" accept=".txt">
+        <div class="button-group">
+            <button id="play-btn">Play</button>
+            <button id="pause-btn" disabled>Pause</button>
+            <button id="reset-btn">Reset</button>
+        </div>
+        <div class="control-group">
+            <label>Speed: <span id="speed-value">20</span> iter/sec</label>
+            <input type="range" id="speed-slider" min="1" max="100" value="20">
+        </div>
+        <div class="control-group">
+            <label>Step: <span id="step-value">0</span> / <span id="total-steps">0</span></label>
+            <input type="range" id="step-slider" min="0" max="0" value="0">
+        </div>
+        <div id="info">
+            <div><strong>Components:</strong> <span id="component-count">0</span></div>
+            <div><strong>Merges:</strong> <span id="merge-count">0</span></div>
+            <div><strong>Points:</strong> <span id="point-count">0</span></div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // DSU Implementation
+        class DSU {
+            constructor(n) {
+                this.parent = Array.from({ length: n }, (_, i) => i);
+                this.rank = new Array(n).fill(0);
+                this.numComponents = n;
+            }
+
+            find(x) {
+                if (this.parent[x] !== x) {
+                    this.parent[x] = this.find(this.parent[x]);
+                }
+                return this.parent[x];
+            }
+
+            union(x, y) {
+                const rootX = this.find(x);
+                const rootY = this.find(y);
+                if (rootX !== rootY) {
+                    if (this.rank[rootX] > this.rank[rootY]) {
+                        this.parent[rootY] = rootX;
+                    } else if (this.rank[rootX] < this.rank[rootY]) {
+                        this.parent[rootX] = rootY;
+                    } else {
+                        this.parent[rootY] = rootX;
+                        this.rank[rootX]++;
+                    }
+                    this.numComponents--;
+                    return true;
+                }
+                return false;
+            }
+
+            getComponents() {
+                const components = {};
+                for (let i = 0; i < this.parent.length; i++) {
+                    const root = this.find(i);
+                    if (!components[root]) {
+                        components[root] = [];
+                    }
+                    components[root].push(i);
+                }
+                return components;
+            }
+        }
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f0f23);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000000);
+        camera.position.set(50000, 50000, 100000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(100000, 100000, 100000);
+        scene.add(directionalLight);
+
+        // Visualization state
+        let positions = [];
+        let dsu = null;
+        let edges = [];
+        let currentStep = 0;
+        let isPlaying = false;
+        let animationSpeed = 20; // iterations per second
+        let pointMeshes = [];
+        let lineMeshes = [];
+        let colorMap = {};
+        let boundingBox = null; // Global bounding box helper
+
+        // Color generation
+        // function generateColor(index) {
+        //     const hue = (index * 137.508) % 360; // Golden angle for good distribution
+        //     return new THREE.Color().setHSL(hue / 360, 0.8, 0.6);
+        // }
+        const colors = [
+            0x27d41e, 0x347530, 0xd9d338, 0xc4c4bb
+        ];
+        function generateColor(index) {
+            return new THREE.Color(colors[index % colors.length]);
+        }
+
+        // Parse input file
+        function parseFile(text) {
+            const lines = text.trim().split('\n');
+            positions = lines.map(line => {
+                const [x, y, z] = line.split(',').map(Number);
+                return new THREE.Vector3(x, y, z);
+            });
+            
+            // Calculate all edges with distances
+            edges = [];
+            for (let i = 0; i < positions.length; i++) {
+                for (let j = i + 1; j < positions.length; j++) {
+                    const dist = positions[i].distanceToSquared(positions[j]);
+                    edges.push({ dist, i, j });
+                }
+            }
+            edges.sort((a, b) => a.dist - b.dist);
+            
+            document.getElementById('point-count').textContent = positions.length;
+            document.getElementById('total-steps').textContent = edges.length;
+            document.getElementById('step-slider').max = edges.length;
+            
+            resetVisualization();
+        }
+
+        // Initialize visualization
+        function resetVisualization() {
+            // Clear existing objects
+            pointMeshes.forEach(mesh => scene.remove(mesh));
+            lineMeshes.forEach(mesh => scene.remove(mesh));
+            pointMeshes = [];
+            lineMeshes = [];
+            colorMap = {};
+            
+            // Remove old bounding box
+            if (boundingBox) {
+                scene.remove(boundingBox);
+                boundingBox = null;
+            }
+            
+            if (positions.length === 0) return;
+            
+            dsu = new DSU(positions.length);
+            currentStep = 0;
+            
+            // Create bounding box
+            const box = new THREE.Box3();
+            positions.forEach(pos => box.expandByPoint(pos));
+            boundingBox = new THREE.Box3Helper(box, 0x666666);
+            scene.add(boundingBox);
+            
+            // Create point meshes
+            const geometry = new THREE.SphereGeometry(500, 16, 16);
+            positions.forEach((pos, i) => {
+                const color = generateColor(i);
+                colorMap[i] = color;
+                const material = new THREE.MeshPhongMaterial({ color });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.copy(pos);
+                mesh.userData.index = i;
+                scene.add(mesh);
+                pointMeshes.push(mesh);
+            });
+            
+            updateInfo();
+            updateCamera();
+        }
+
+        // Update camera to frame all points
+        function updateCamera() {
+            if (positions.length === 0) return;
+            
+            const box = new THREE.Box3();
+            positions.forEach(pos => box.expandByPoint(pos));
+            
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            camera.position.copy(center).add(new THREE.Vector3(maxDim, maxDim, maxDim * 1.5));
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        // Step through algorithm
+        function step() {
+            if (currentStep >= edges.length) {
+                pause();
+                return;
+            }
+            
+            const edge = edges[currentStep];
+            const { i, j } = edge;
+            
+            if (dsu.union(i, j)) {
+                // Create line between merged points
+                const points = [positions[i], positions[j]];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const rootColor = colorMap[dsu.find(i)];
+                const material = new THREE.LineBasicMaterial({ 
+                    color: rootColor,
+                    opacity: 0.8,
+                    transparent: true,
+                    linewidth: 5
+                });
+                const line = new THREE.Line(geometry, material);
+                line.userData = { startIndex: i, endIndex: j };
+                scene.add(line);
+                lineMeshes.push(line);
+                
+                // Update colors to match component
+                updateComponentColors();
+            }
+            
+            currentStep++;
+            updateInfo();
+            document.getElementById('step-slider').value = currentStep;
+        }
+
+        // Update colors based on components
+        function updateComponentColors() {
+            const components = dsu.getComponents();
+            
+            // Assign root colors
+            Object.keys(components).forEach(rootStr => {
+                const root = parseInt(rootStr);
+                if (!colorMap[root]) {
+                    colorMap[root] = generateColor(root);
+                }
+            });
+            
+            // Update point colors
+            pointMeshes.forEach(mesh => {
+                const root = dsu.find(mesh.userData.index);
+                mesh.material.color.copy(colorMap[root]);
+            });
+
+            // Update line colors
+            lineMeshes.forEach(line => {
+                const root = dsu.find(line.userData.startIndex);
+                line.material.color.copy(colorMap[root]);
+            });
+        }
+
+        // Update info display
+        function updateInfo() {
+            const components = dsu.getComponents();
+            document.getElementById('component-count').textContent = Object.keys(components).length;
+            document.getElementById('merge-count').textContent = currentStep;
+            document.getElementById('step-value').textContent = currentStep;
+        }
+
+        // Jump to specific step
+        function jumpToStep(targetStep) {
+            if (targetStep < currentStep) {
+                resetVisualization();
+            }
+            
+            while (currentStep < targetStep && currentStep < edges.length) {
+                step();
+            }
+        }
+
+        // Playback controls
+        let animationInterval = null;
+
+        function play() {
+            if (isPlaying) return;
+            isPlaying = true;
+            document.getElementById('play-btn').disabled = true;
+            document.getElementById('pause-btn').disabled = false;
+            
+            animationInterval = setInterval(() => {
+                if (currentStep >= edges.length) {
+                    pause();
+                } else {
+                    step();
+                }
+            }, 1000 / animationSpeed);
+        }
+
+        function pause() {
+            isPlaying = false;
+            document.getElementById('play-btn').disabled = false;
+            document.getElementById('pause-btn').disabled = true;
+            
+            if (animationInterval) {
+                clearInterval(animationInterval);
+                animationInterval = null;
+            }
+        }
+
+        function reset() {
+            pause();
+            resetVisualization();
+        }
+
+        // Event listeners
+        document.getElementById('play-btn').addEventListener('click', play);
+        document.getElementById('pause-btn').addEventListener('click', pause);
+        document.getElementById('reset-btn').addEventListener('click', reset);
+        
+        document.getElementById('speed-slider').addEventListener('input', (e) => {
+            animationSpeed = parseInt(e.target.value);
+            document.getElementById('speed-value').textContent = animationSpeed;
+            
+            if (isPlaying) {
+                pause();
+                play();
+            }
+        });
+        
+        document.getElementById('step-slider').addEventListener('input', (e) => {
+            const targetStep = parseInt(e.target.value);
+            jumpToStep(targetStep);
+        });
+        
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    parseFile(event.target.result);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Load default file
+        fetch('08.txt')
+            .then(response => response.text())
+            .then(text => parseFile(text))
+            .catch(err => console.error('Error loading default file:', err));
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
