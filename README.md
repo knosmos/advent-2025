@@ -19,3 +19,7 @@ yet another advent of code 2025 repository.
 https://knosmos.github.io/advent-2025/08
 
 <img width="2531" height="1521" alt="image" src="https://github.com/user-attachments/assets/355f9837-ab38-46ba-99f9-837e1a50460a" />
+
+https://knosmos.github.io/advent-2025/11
+
+<img width="2780" height="1504" alt="image" src="https://github.com/user-attachments/assets/85002efc-4653-441b-bf92-55dc326a12f2" />
