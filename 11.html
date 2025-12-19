@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Path Visualization - Day 11</title>
+</head>
+<body>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap');
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0f0f23;
+            color: #cccccc;
+            font-family: "Source Code Pro";
+            font-weight: 300;
+            font-size: 14pt;
+            min-width: 60em;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 320px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        button, input[type=file]::file-selector-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12pt;
+            font-family: "Source Code Pro";
+        }
+        button:hover, input[type=file]::file-selector-button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        #info {
+            margin-top: 15px;
+            font-size: 13pt;
+            line-height: 1.6;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        #file-input {
+            margin: 10px 0;
+        }
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        h3 {
+            margin: 0 0 10px 0;
+            font-weight: normal;
+        }
+        input[type=file] {
+            font-size: 12pt;
+            font-family: "Source Code Pro";
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type=file]::file-selector-button {
+            margin-right: 10px;
+        }
+    </style>
+    <div id="canvas-container"></div>
+    <div id="controls">
+        <h3>TOROIDAL REACTOR <br><span style="color:rgb(166, 166, 166)">SERVER NETWORK ///</span></h3>
+        <input type="file" id="file-input" accept=".txt">
+        <div class="button-group">
+            <button id="layout-btn">Re-layout</button>
+            <button id="reset-btn">Reset View</button>
+        </div>
+        <div class="control-group">
+            <label><input type="checkbox" id="physics-toggle" checked> Physics Enabled</label>
+        </div>
+        <div class="control-group">
+            <label>Spring Strength: <span id="spring-value">1</span></label>
+            <input type="range" id="spring-slider" min="0.001" max="5" step="0.001" value="1">
+        </div>
+        <div class="control-group">
+            <label>Repulsion: <span id="repulsion-value">30</span></label>
+            <input type="range" id="repulsion-slider" min="10" max="100" step="10" value="30">
+        </div>
+        <div class="control-group">
+            <label><input type="checkbox" id="show-all-paths" checked> Show Edges</label>
+        </div>
+        <div id="info">
+            <div><strong>Nodes:</strong> <span id="node-count">0</span></div>
+            <div><strong>Edges:</strong> <span id="edge-count">0</span></div>
+            <div><strong>FFT+DAC Paths:</strong> <span id="fft-dac-paths">0</span></div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0f0f23);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        camera.position.set(0, 0, 100);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(50, 50, 50);
+        scene.add(directionalLight);
+
+        // Color scheme
+        const colors = {
+            svr: 0x27d41e,
+            fft: 0xd9d338,
+            dac: 0xd9d338,
+            out: 0x347530,
+            normal: 0xc4c4bb,
+            edge: 0x666666,
+            pathHighlight: 0xff6b6b
+        };
+
+        // Graph state
+        let adj = {};
+        let nodes = new Map(); // node name -> { mesh, position, velocity, label }
+        let edges = [];
+        let edgeMeshes = [];
+        let highlightedEdges = []; // White highlighted path
+        
+        // Physics state
+        let physicsEnabled = true;
+        let springStrength = 1.0;
+        let repulsionStrength = 30;
+        let damping = 0.8;
+        
+        // Path highlighting
+        let showAllPaths = true;
+        let highlightFftDac = true;
+        let pathCache = new Map();
+
+        // Parse graph file
+        function parseFile(text) {
+            const lines = text.trim().split('\n');
+            adj = {};
+            
+            lines.forEach(line => {
+                const [source, targets] = line.split(': ');
+                adj[source] = targets.split(' ');
+            });
+            
+            buildGraph();
+            computePaths();
+            updateInfo();
+        }
+
+        // Build 3D graph
+        function buildGraph() {
+            // Clear existing
+            nodes.forEach(node => {
+                scene.remove(node.mesh);
+                if (node.label) scene.remove(node.label);
+            });
+            edgeMeshes.forEach(mesh => scene.remove(mesh));
+            highlightedEdges.forEach(mesh => scene.remove(mesh));
+            nodes.clear();
+            edges = [];
+            edgeMeshes = [];
+            highlightedEdges = [];
+            
+            // Collect all unique nodes
+            const nodeSet = new Set(Object.keys(adj));
+            Object.values(adj).forEach(targets => {
+                targets.forEach(t => nodeSet.add(t));
+            });
+            
+            // Create node meshes with initial random positions
+            const nodeArray = Array.from(nodeSet);
+            nodeArray.forEach((name, i) => {
+                const pos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 80,
+                    (Math.random() - 0.5) * 80,
+                    (Math.random() - 0.5) * 80
+                );
+                
+                let color = colors.normal;
+                let size = 0.5;
+                if (name === 'svr') { color = colors.svr; size = 2.5; }
+                else if (name === 'fft') { color = colors.fft; size = 2.0; }
+                else if (name === 'dac') { color = colors.dac; size = 2.0; }
+                else if (name === 'out') { color = colors.out; size = 2.5; }
+                
+                const geometry = new THREE.SphereGeometry(size, 16, 16);
+                const material = new THREE.MeshPhongMaterial({ color });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.copy(pos);
+                scene.add(mesh);
+                
+                // Add text label
+                const label = createTextSprite(name);
+                label.position.copy(pos);
+                scene.add(label);
+                
+                nodes.set(name, {
+                    mesh,
+                    label,
+                    position: pos,
+                    velocity: new THREE.Vector3(),
+                    name
+                });
+            });
+            
+            // Create edges
+            Object.entries(adj).forEach(([source, targets]) => {
+                targets.forEach(target => {
+                    if (nodes.has(source) && nodes.has(target)) {
+                        edges.push({ source, target });
+                        
+                        const sourcePos = nodes.get(source).position;
+                        const targetPos = nodes.get(target).position;
+                        const geometry = new THREE.BufferGeometry().setFromPoints([sourcePos, targetPos]);
+                        const material = new THREE.LineBasicMaterial({ 
+                            color: colors.edge,
+                            opacity: 0.4,
+                            transparent: true
+                        });
+                        const line = new THREE.Line(geometry, material);
+                        scene.add(line);
+                        edgeMeshes.push({ line, source, target });
+                    }
+                });
+            });
+            
+            // Position camera to see all nodes
+            updateCamera();
+        }
+
+        // Create text sprite for labels
+        function createTextSprite(text) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 128;
+            
+            context.fillStyle = '#ffffff';
+            context.font = 'Bold 48px Source Code Pro';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(text, 128, 64);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(8, 4, 1);
+            
+            return sprite;
+        }
+
+        // Update camera to frame all nodes
+        function updateCamera() {
+            if (nodes.size === 0) return;
+            
+            const box = new THREE.Box3();
+            nodes.forEach(node => box.expandByPoint(node.position));
+            
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z, 50);
+            
+            camera.position.set(maxDim * 0.8, maxDim * 0.8, maxDim * 1.2);
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        // Compute paths from svr to out
+        function computePaths() {
+            pathCache.clear();
+            let foundPath = null;
+            
+            function dfs(node, hasFFT, hasDAC, path) {
+                const key = `${node},${hasFFT},${hasDAC}`;
+                if (pathCache.has(key)) return pathCache.get(key);
+                
+                if (!adj[node] || adj[node].includes('out')) {
+                    const result = (adj[node] && adj[node].includes('out')) ? (hasFFT && hasDAC ? 1 : 0) : 0;
+                    pathCache.set(key, result);
+                    // Store first valid path found
+                    if (result > 0 && !foundPath && path) {
+                        foundPath = [...path, 'out'];
+                    }
+                    return result;
+                }
+                
+                let count = 0;
+                for (const next of adj[node]) {
+                    count += dfs(next, hasFFT || next === 'fft', hasDAC || next === 'dac', path ? [...path, next] : null);
+                }
+                
+                pathCache.set(key, count);
+                return count;
+            }
+            
+            // Count total paths from svr and find one path
+            if (adj['svr']) {
+                const fftDacCount = dfs('svr', false, false, ['svr']);
+                document.getElementById('fft-dac-paths').textContent = fftDacCount;
+                
+                // Highlight the found path
+                if (foundPath) {
+                    highlightedEdges.forEach(mesh => scene.remove(mesh));
+                    highlightedEdges = [];
+                    
+                    for (let i = 0; i < foundPath.length - 1; i++) {
+                        const source = foundPath[i];
+                        const target = foundPath[i + 1];
+                        
+                        if (nodes.has(source) && nodes.has(target)) {
+                            const sourcePos = nodes.get(source).position;
+                            const targetPos = nodes.get(target).position;
+                            const geometry = new THREE.BufferGeometry().setFromPoints([sourcePos, targetPos]);
+                            const material = new THREE.LineBasicMaterial({ 
+                                color: 0xffffff,
+                                opacity: 0.9,
+                                transparent: true,
+                                linewidth: 3
+                            });
+                            const line = new THREE.Line(geometry, material);
+                            scene.add(line);
+                            highlightedEdges.push({ line, source, target });
+                        }
+                    }
+                    console.log('Highlighted path:', foundPath.join(' → '));
+                }
+            }
+        }
+
+        // Physics simulation (force-directed graph layout)
+        function updatePhysics(dt) {
+            if (!physicsEnabled) return;
+            
+            const centerForce = 0.005;
+            
+            // Reset forces
+            nodes.forEach(node => {
+                // Gentle pull toward center
+                node.velocity.addScaledVector(node.position, -centerForce);
+            });
+            
+            // Repulsion between all nodes
+            const nodeArray = Array.from(nodes.values());
+            for (let i = 0; i < nodeArray.length; i++) {
+                for (let j = i + 1; j < nodeArray.length; j++) {
+                    const n1 = nodeArray[i];
+                    const n2 = nodeArray[j];
+                    const delta = new THREE.Vector3().subVectors(n1.position, n2.position);
+                    const dist = delta.length();
+                    
+                    if (dist > 0 && dist < 100) {
+                        const force = repulsionStrength / (dist * dist + 1);
+                        delta.normalize().multiplyScalar(force);
+                        n1.velocity.add(delta);
+                        n2.velocity.sub(delta);
+                    }
+                }
+            }
+            
+            // Spring forces along edges
+            edges.forEach(({ source, target }) => {
+                const n1 = nodes.get(source);
+                const n2 = nodes.get(target);
+                if (!n1 || !n2) return;
+                
+                const delta = new THREE.Vector3().subVectors(n2.position, n1.position);
+                const dist = delta.length();
+                const idealDist = 15;
+                const force = (dist - idealDist) * springStrength;
+                
+                delta.normalize().multiplyScalar(force);
+                n1.velocity.add(delta);
+                n2.velocity.sub(delta);
+            });
+            
+            // Apply damping and update positions
+            nodes.forEach(node => {
+                node.velocity.multiplyScalar(damping);
+                node.position.addScaledVector(node.velocity, dt);
+                node.mesh.position.copy(node.position);
+                node.label.position.copy(node.position).addScalar(3);
+            });
+            
+            // Update edge geometries
+            edgeMeshes.forEach(({ line, source, target }) => {
+                const n1 = nodes.get(source);
+                const n2 = nodes.get(target);
+                if (n1 && n2) {
+                    line.geometry.setFromPoints([n1.position, n2.position]);
+                }
+            });
+            
+            // Update highlighted path edges
+            highlightedEdges.forEach(({ line, source, target }) => {
+                const n1 = nodes.get(source);
+                const n2 = nodes.get(target);
+                if (n1 && n2) {
+                    line.geometry.setFromPoints([n1.position, n2.position]);
+                }
+            });
+        }
+
+        // Update info display
+        function updateInfo() {
+            document.getElementById('node-count').textContent = nodes.size;
+            document.getElementById('edge-count').textContent = edges.length;
+        }
+
+        // Re-layout graph
+        function relayout() {
+            nodes.forEach(node => {
+                node.position.set(
+                    (Math.random() - 0.5) * 80,
+                    (Math.random() - 0.5) * 80,
+                    (Math.random() - 0.5) * 80
+                );
+                node.velocity.set(0, 0, 0);
+            });
+        }
+
+        // Event listeners
+        document.getElementById('layout-btn').addEventListener('click', relayout);
+        document.getElementById('reset-btn').addEventListener('click', updateCamera);
+        
+        document.getElementById('physics-toggle').addEventListener('change', (e) => {
+            physicsEnabled = e.target.checked;
+        });
+        
+        document.getElementById('spring-slider').addEventListener('input', (e) => {
+            springStrength = parseFloat(e.target.value);
+            document.getElementById('spring-value').textContent = springStrength.toFixed(3);
+        });
+        
+        document.getElementById('repulsion-slider').addEventListener('input', (e) => {
+            repulsionStrength = parseFloat(e.target.value);
+            document.getElementById('repulsion-value').textContent = repulsionStrength;
+        });
+        
+        document.getElementById('show-all-paths').addEventListener('change', (e) => {
+            showAllPaths = e.target.checked;
+            // Update edge visibility
+            edgeMeshes.forEach(({ line }) => {
+                line.material.opacity = showAllPaths ? 0.4 : 0;
+            });
+        });
+        
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    parseFile(event.target.result);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Load default file
+        fetch('11.txt')
+            .then(response => response.text())
+            .then(text => parseFile(text))
+            .catch(err => console.error('Error loading default file:', err));
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Animation loop
+        let lastTime = performance.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const now = performance.now();
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+            
+            updatePhysics(dt);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
